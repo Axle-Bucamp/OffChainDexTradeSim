@@ -1,9 +1,6 @@
 import json
 import redis
 import requests
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.responses import FileResponse
 
 # Initialize Redis client
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
