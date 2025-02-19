@@ -1,0 +1,6 @@
+redis
+requests
+fastapi
+pydantic
+uvicorn
+jinja2

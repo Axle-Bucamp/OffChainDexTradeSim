@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Dashboard{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Trading Dashboard</h1>
+    
+    <div class="wallet-info">
+        <h2>Wallet Balance: <span id="wallet_balance">{{ wallet_balance }}</span> USDC</h2>
+        <h2>Total Portfolio Value: <span id="total_value">{{ total_value }}</span> USDC</h2>
+    </div>
+
+    <div class="wrapped">
+        <div class="trade-forms">
+            <h3>Buy Asset</h3>
+            <form id="buyForm" method="post" action="/buy">
+                <label for="buy_ticker">Ticker:</label>
+                <select id="buy_ticker" name="ticker" required>
+                    <option value="" disabled selected>Loading tickers...</option>
+                </select>
+                <label for="buy_amount">Amount:</label>
+                <input type="number" name="amount" step="0.01" required>
+                <button type="submit">Buy</button>
+            </form>
+            
+            <h3>Sell Asset</h3>
+            <form id="sellForm" method="post" action="/sell">
+                <label for="sell_ticker">Ticker:</label>
+                <select id="sell_ticker" name="ticker" required>
+                    <option value="" disabled selected>Loading tickers...</option>
+                </select>
+                <label for="sell_amount">Amount:</label>
+                <input type="number" name="amount" step="0.01" required>
+                <button type="submit">Sell</button>
+            </form>
+        </div>
+
+        <!-- Holdings Visualization -->
+        <div class="holdings-visualization">
+            <h3>Portfolio Holdings</h3>
+            <canvas id="holdingsChart"></canvas>
+        </div>
+
+    </div>
+    
+    <div id="responseMessage">{% if message %}{{ message }}{% endif %}</div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    async function fetchWalletData() {
+        let walletData = await fetchFromCacheOrAPI("/wallet_usdc", "wallet_data");
+        if (walletData) {
+            document.getElementById("wallet_balance").innerText = walletData.wallet_usdc;
+        }
+        
+        let totalData = await fetchFromCacheOrAPI("/ticker_sum_usdc", "total_value");
+        if (totalData) {
+            document.getElementById("total_value").innerText = totalData.total_value;
+        }
+    }
+
+    async function fetchKrakenTickers() {
+        let tickerSelectBuy = document.getElementById("buy_ticker");
+        let tickerSelectSell = document.getElementById("sell_ticker");
+
+        try {
+            let data = await fetchFromCacheOrAPI("/kraken_tickers", "tickers_data");
+            
+            if (data.tickers) {
+                tickerSelectBuy.innerHTML = "";
+                tickerSelectSell.innerHTML = "";
+                data.tickers.forEach(ticker => {
+                    let option = `<option value="${ticker}">${ticker}</option>`;
+                    tickerSelectBuy.innerHTML += option;
+                    tickerSelectSell.innerHTML += option;
+                });
+            } else {
+                tickerSelectBuy.innerHTML = "<option value='' disabled>Error loading tickers</option>";
+                tickerSelectSell.innerHTML = "<option value='' disabled>Error loading tickers</option>";
+            }
+        } catch (error) {
+            console.error("Error fetching tickers:", error);
+            tickerSelectBuy.innerHTML = "<option value='' disabled>Error loading tickers</option>";
+            tickerSelectSell.innerHTML = "<option value='' disabled>Error loading tickers</option>";
+        }
+    }
+
+    async function fetchHoldingsData() {
+        try {
+            let holdingsData = await fetchFromCacheOrAPI("/wallet_holding", "holdings_data");
+            let tickers = Object.keys(holdingsData);
+            let amounts = Object.values(holdingsData);
+
+            // Fetch current USDC prices for each ticker
+            let priceData = await fetchFromCacheOrAPI("/ticker_prices_usdc", "prices_data");
+
+            if (priceData) {
+                let values = tickers.map(ticker => (priceData[ticker] || 0) * holdingsData[ticker]);
+                let filteredTickers = tickers.filter((_, i) => values[i] > 0);
+                let filteredValues = values.filter(value => value > 0);
+
+                let colors = generateColors(filteredTickers.length);
+
+                // Chart rendering
+                renderChart(filteredTickers, filteredValues, colors);
+            }
+        } catch (error) {
+            console.error("Error fetching holdings data:", error);
+        }
+    }
+
+    async function fetchFromCacheOrAPI(url, cacheKey) {
+        // Try to load from localStorage (sessionStorage can be used if only session-specific caching is needed)
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) return JSON.parse(cached);
+
+        try {
+            let response = await fetch(url);
+            let data = await response.json();
+            sessionStorage.setItem(cacheKey, JSON.stringify(data)); // Cache data
+            return data;
+        } catch (error) {
+            console.error(`Error fetching from API: ${url}`, error);
+            return null;
+        }
+    }
+
+    function showError(message) {
+        document.getElementById("buy_ticker").innerHTML = `<option value="" disabled>${message}</option>`;
+        document.getElementById("sell_ticker").innerHTML = `<option value="" disabled>${message}</option>`;
+    }
+
+    function generateColors(count) {
+        return Array.from({ length: count }, (_, i) => `hsl(${i * 50}, 70%, 60%)`);
+    }
+
+    function renderChart(labels, data, colors) {
+        // Destroy previous chart instance if exists
+        if (window.holdingsChartInstance) {
+            window.holdingsChartInstance.destroy();
+        }
+
+        let ctx = document.getElementById("holdingsChart").getContext("2d");
+        window.holdingsChartInstance = new Chart(ctx, {
+            type: "pie",
+            data: {
+                labels,
+                datasets: [{
+                    label: "Portfolio Holdings (USDC Value)",
+                    data,
+                    backgroundColor: colors,
+                    borderColor: "rgba(0, 0, 0, 0.1)",
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: "right",
+                        labels: { font: { size: 14 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (tooltipItem) {
+                                let totalValue = data.reduce((a, b) => a + b, 0);
+                                let percentage = ((tooltipItem.raw / totalValue) * 100).toFixed(2);
+                                return `${tooltipItem.label}: ${tooltipItem.raw.toFixed(2)} USDC (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        fetchWalletData();
+        fetchKrakenTickers();
+        fetchHoldingsData();
+    });
+</script>
+{% endblock %}

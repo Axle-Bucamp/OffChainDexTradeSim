@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Status{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Trading Status</h1>
+    
+    <div class="status-info">
+        <h2>Wallet Balance: <span>{{ status.balance }}</span> USDC</h2>
+        <h2>Holdings:</h2>
+        <ul>
+            {% for ticker, amount in status.holdings.items() %}
+            <li>{{ ticker }}: {{ amount }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}
